@@ -1,0 +1,175 @@
+/* 
+======================================================
+Case Study #6: Click Bait – Capturing Attention
+Source: 8 Week SQL Challenge
+Author: David Slayton
+======================================================
+
+Business Context:
+Clique Bait is a digital click-through marketplace. 
+This project explores user journeys, funnel drop-offs, 
+conversion rates, and product performance.
+
+Tables Provided:
+- users (user_id, cookie_id, start_date)
+- events (visit_id, cookie_id, page_id, event_type, sequence_number, event_time)
+- event_identifier (event_type, event_name)
+- page_hierarchy (page_id, page_name, product_category, product_id)
+- campaign_identifier (campaign_id, products, campaign_name, start_date, end_date)
+
+======================================================
+*/
+
+/* =========================
+   SCHEMA (for reference)
+   ========================= */
+
+CREATE TABLE clique_bait.event_identifier (
+  "event_type" INTEGER,
+  "event_name" VARCHAR(13)
+);
+
+CREATE TABLE clique_bait.campaign_identifier (
+  "campaign_id" INTEGER,
+  "products" VARCHAR(3),
+  "campaign_name" VARCHAR(33),
+  "start_date" TIMESTAMP,
+  "end_date" TIMESTAMP
+);
+
+CREATE TABLE clique_bait.page_hierarchy (
+  "page_id" INTEGER,
+  "page_name" VARCHAR(14),
+  "product_category" VARCHAR(9),
+  "product_id" INTEGER
+);
+
+CREATE TABLE clique_bait.users (
+  "user_id" INTEGER,
+  "cookie_id" VARCHAR(6),
+  "start_date" TIMESTAMP
+);
+
+CREATE TABLE clique_bait.events (
+  "visit_id" VARCHAR(6),
+  "cookie_id" VARCHAR(6),
+  "page_id" INTEGER,
+  "event_type" INTEGER,
+  "sequence_number" INTEGER,
+  "event_time" TIMESTAMP
+);
+
+
+/* ======================================================
+   QUESTIONS & ANSWERS
+   ====================================================== */
+
+/* Q1. How many users are there? */
+SELECT COUNT(*) AS "total_users"
+FROM clique_bait.users;
+
+
+/* Q2. How many cookies does each user have on average? */
+SELECT AVG(cookie_count) AS "avg_cookies_per_user"
+FROM (
+  SELECT "user_id", COUNT(DISTINCT "cookie_id") AS cookie_count
+  FROM clique_bait.users
+  GROUP BY "user_id"
+) t;
+
+
+/* Q3. What is the unique number of visits by all users per month? */
+SELECT 
+  DATE_TRUNC('month', "event_time") AS "month",
+  COUNT(DISTINCT "visit_id")        AS "unique_visits"
+FROM clique_bait.events
+GROUP BY DATE_TRUNC('month', "event_time")
+ORDER BY "month";
+
+
+/* Q4. What is the number of events for each event type? */
+SELECT 
+  EI."event_name",
+  COUNT(*) AS "event_count"
+FROM clique_bait.events E
+JOIN clique_bait.event_identifier EI 
+  ON E."event_type" = EI."event_type"
+GROUP BY EI."event_name"
+ORDER BY "event_count" DESC;
+
+
+/* Q5. What is the percentage of visits which have a purchase event? */
+WITH per_visit AS (
+  SELECT "visit_id",
+         MAX(IFF(EI."event_name" = 'Purchase',1,0)) AS "has_purchase"
+  FROM clique_bait.events E
+  JOIN clique_bait.event_identifier EI 
+    ON E."event_type" = EI."event_type"
+  GROUP BY "visit_id"
+)
+SELECT 
+  100.0 * SUM("has_purchase") / COUNT(*) AS "pct_visits_with_purchase"
+FROM per_visit;
+
+
+/* Q6. What is the percentage of visits which view the checkout page but do not have a purchase event? */
+WITH per_visit AS (
+  SELECT "visit_id",
+         MAX(IFF(EI."event_name" = 'Purchase',1,0))  AS "has_purchase",
+         MAX(IFF(PH."page_name" = 'Checkout',1,0))   AS "viewed_checkout"
+  FROM clique_bait.events E
+  JOIN clique_bait.event_identifier EI 
+    ON E."event_type" = EI."event_type"
+  LEFT JOIN clique_bait.page_hierarchy PH 
+    ON E."page_id" = PH."page_id"
+  GROUP BY "visit_id"
+)
+SELECT 
+  100.0 * SUM(IFF("viewed_checkout"=1 AND "has_purchase"=0,1,0)) / COUNT(*) 
+    AS "pct_checkout_no_purchase"
+FROM per_visit;
+
+
+/* Q7. What are the top 3 pages by number of views? */
+SELECT 
+  PH."page_name",
+  COUNT(*) AS "views"
+FROM clique_bait.events E
+JOIN clique_bait.event_identifier EI 
+  ON E."event_type" = EI."event_type"
+JOIN clique_bait.page_hierarchy PH 
+  ON E."page_id" = PH."page_id"
+WHERE EI."event_name" = 'Page View'
+GROUP BY PH."page_name"
+ORDER BY "views" DESC
+LIMIT 3;
+
+
+/* Q8. What is the number of views and cart adds for each product category? */
+SELECT 
+  PH."product_category",
+  SUM(IFF(EI."event_name"='Page View',1,0))     AS "views",
+  SUM(IFF(EI."event_name"='Add to Cart',1,0))   AS "cart_adds"
+FROM clique_bait.events E
+JOIN clique_bait.event_identifier EI 
+  ON E."event_type" = EI."event_type"
+JOIN clique_bait.page_hierarchy PH 
+  ON E."page_id" = PH."page_id"
+GROUP BY PH."product_category"
+ORDER BY PH."product_category";
+
+
+/* Q9. What are the top 3 products by purchases? */
+SELECT 
+  PH."product_id",
+  COUNT(*) AS "purchase_count"
+FROM clique_bait.events E
+JOIN clique_bait.event_identifier EI 
+  ON E."event_type" = EI."event_type"
+JOIN clique_bait.page_hierarchy PH 
+  ON E."page_id" = PH."page_id"
+WHERE EI."event_name" = 'Purchase'
+GROUP BY PH."product_id"
+ORDER BY "purchase_count" DESC
+LIMIT 3;
+
